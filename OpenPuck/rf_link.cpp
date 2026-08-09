@@ -531,7 +531,7 @@ uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 										2000u) {
 									offFired[g_curSlot] =
 										true;
-									hapticSendShutdown();
+									hapticSendShutdown(g_curSlot);
 								}
 								if (g_usbMode !=
 								    MODE_STEAM) {
@@ -966,7 +966,7 @@ void rfLinkTask()
 	// Poll before beacons: the cycle gate must fire as close to its
 	// 4 ms deadline as possible; beacon TX (up to 3.6 ms for 4 slots)
 	// runs after so it never delays the current poll.
-	if (g_connOn && millis() - g_connCooldown > 2500) {
+	if (g_connOn && (g_connCooldown == 0 || millis() - g_connCooldown > 2500)) {
 		rfConnStep();
 	} // connected-mode: poll controller, read input
 
@@ -974,7 +974,7 @@ void rfLinkTask()
 	// real puck's per-hop-cycle announce) to stay synced and keep answering polls at full rate; suppressing it
 	// drops the reply rate from ~210/s to ~38/s. Paused only during the post-disconnect cooldown so a controller
 	// that's powering off isn't immediately re-woken/reconnected.
-	if (g_rfHost && millis() - g_connCooldown > 2500) {
+	if (g_rfHost && (g_connCooldown == 0 || millis() - g_connCooldown > 2500)) {
 		bool connNow = anySlotLinkUp();
 		// session keepalive on the clean channel: every loop while connecting (fast), every 25ms once connected
 		// (every-loop beaconing also hammers the session ch and steals reply slots from the poll). The real puck
@@ -1044,7 +1044,7 @@ void rfLinkTask()
 	// connected slot being stalled, so one controller walking off (others still live) never trips it; the
 	// cooldown gate keeps it from firing while a controller is intentionally powering off; rate-limited so it
 	// cannot thrash. g_rfStallRecover is surfaced to the panel so the wedge -- and its recovery -- is observable.
-	if (g_connOn && g_curSlot >= 0 && millis() - g_connCooldown > 2500) {
+	if (g_connOn && g_curSlot >= 0 && (g_connCooldown == 0 || millis() - g_connCooldown > 2500)) {
 		static unsigned long lastRecoverMs = 0;
 		static uint8_t consecStall = 0;
 		unsigned long nowMs2 = millis();
