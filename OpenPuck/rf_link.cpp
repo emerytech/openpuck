@@ -441,7 +441,7 @@ uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 					// (Steam forwards it verbatim under the right id/length in onReport45).
 					if (ttype == 6 && tlen >= 28 &&
 					    (size_t)(idx + 2) + tlen <=
-						    sizeof(rfrx) &&
+						    (size_t)end &&
 					    (rfrx[idx + 2] == 0x45 ||
 					     rfrx[idx + 2] == 0x42)) {
 						// report 0x45/0x42: [id][seq][buttons u32]...
@@ -636,7 +636,7 @@ uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 						lastTlen = tlen;
 					} else if (ttype == 6 &&
 						   (size_t)(idx + 2) + tlen <=
-							   sizeof(rfrx) &&
+							   (size_t)end &&
 						   tlen >= 2 &&
 						   (rfrx[idx + 2] == 0x43 ||
 						    rfrx[idx + 2] == 0x44)) {
@@ -666,7 +666,7 @@ uint8_t rfConnTx(uint8_t ch, uint8_t s1, const uint8_t *payload, uint8_t plen,
 									  1));
 					} else if (ttype == 6 &&
 						   (size_t)(idx + 2) + tlen <=
-							   sizeof(rfrx) &&
+							   (size_t)end &&
 						   tlen >= 1) {
 						// DIAGNOSTIC (beta-update RE): a type-6 HID-report TLV whose report id we
 						// DON'T decode (not 0x45 input, not 0x43/0x44 status). If the new controller

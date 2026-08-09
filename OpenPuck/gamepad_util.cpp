@@ -14,12 +14,12 @@ void psNeutralCalib(uint8_t *buf)
 	le16(buf + 16, -2844); // gyro roll +/-
 	le16(buf + 18, 2844);
 	le16(buf + 20, 2844); // gyro speed +/- (sum != 0)
-	le16(buf + 22, 8192);
-	le16(buf + 24, -8192); // accel X +/-
-	le16(buf + 26, 8192);
-	le16(buf + 28, -8192); // accel Y +/-
-	le16(buf + 30, 8192);
-	le16(buf + 32, -8192); // accel Z +/-
+	le16(buf + 22, 16384);
+	le16(buf + 24, -16384); // accel X +/-
+	le16(buf + 26, 16384);
+	le16(buf + 28, -16384); // accel Y +/-
+	le16(buf + 30, 16384);
+	le16(buf + 32, -16384); // accel Z +/-
 }
 
 uint8_t swStick(int16_t v, bool invert)
