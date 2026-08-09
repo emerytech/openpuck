@@ -132,15 +132,16 @@ uint32_t fwupNextOff(void)
 uint8_t fwupBegin(uint32_t size, uint32_t crc32)
 {
 	s_active = false;
-	// any BEGIN first disarms a previously staged update -- a restarted transfer must never leave a stale
-	// commit behind (the staged bytes it points at are about to be overwritten).
-	nvmcErasePage(FWUP_META);
+	// Validate the request BEFORE touching flash. A rejected BEGIN must not destroy a previously committed,
+	// CRC-verified update: the disarm-on-BEGIN only makes sense once we're actually going to stage new bytes.
 	if (size == 0 || size > FWUP_MAX_IMG || (size & 3))
 		return FWUP_ERR_BOUNDS;
 	uint32_t base = (FWUP_META - size) & ~(FWUP_PAGE - 1);
 	// keep a page of slack above the running image so staging can NEVER touch live code/rodata/.data-init
 	if (base < flashUsedEnd() + FWUP_PAGE)
 		return FWUP_ERR_BOUNDS;
+	// request is valid -- now disarm any prior staged commit and stage this one
+	nvmcErasePage(FWUP_META);
 	s_size = size;
 	s_crc = crc32;
 	s_base = base;

@@ -133,6 +133,7 @@ void saveLizardMap()
 
 void loadLizardMap()
 {
+	bool loaded = false;
 	File f(InternalFS);
 	if (f.open(LZ_FILE, FILE_O_READ)) {
 		uint8_t hdr[3] = { 0, 0, 0 };
@@ -142,13 +143,18 @@ void loadLizardMap()
 			g_lizardMap.count = 0;
 			int got = f.read((uint8_t *)g_lizardMap.bindings,
 					 cnt * sizeof(LizardBinding));
-			if (got == (int)(cnt * sizeof(LizardBinding)))
+			// A valid file with cnt==0 reads 0 bytes (got==0==0*size) -- that is a
+			// deliberately-emptied map, not a load failure, so mark it loaded too.
+			if (got == (int)(cnt * sizeof(LizardBinding))) {
 				g_lizardMap.count = cnt;
+				loaded = true;
+			}
 		}
 		f.close();
 	}
-	// If nothing loaded, install + persist defaults
-	if (g_lizardMap.count == 0) {
+	// Install + persist defaults only when the file is missing/invalid -- never clobber a
+	// validly-saved empty map (which would revert the user's choice and rewrite flash every boot).
+	if (!loaded) {
 		defaultLizardMap();
 		saveLizardMap();
 	}
