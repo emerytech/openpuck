@@ -1,6 +1,40 @@
 #include "gamepad_util.h"
 #include "triton.h"
 #include "config.h"
+#include "haptics.h"
+#include "bonds.h"
+
+PsImuFrame psImuFromSteam(const PuckInput &in)
+{
+	PsImuFrame out = { in.gx, in.gz, (int16_t)(-in.gy),
+			   in.ax, in.az, (int16_t)(-in.ay) };
+	return out;
+}
+
+static bool g_psPadClickDown[NSLOT] = {};
+static unsigned long g_psPadClickReplyMs[NSLOT] = {};
+
+void psPadClickEdge(uint8_t slot, bool pressed)
+{
+	if (slot >= NSLOT)
+		return;
+	const unsigned long replyMs = g_connReplyMs[slot];
+	const bool linkUp = hapticLinkUp(slot);
+	if (!linkUp ||
+	    (g_psPadClickReplyMs[slot] && replyMs &&
+	     (unsigned long)(replyMs - g_psPadClickReplyMs[slot]) >= 300u))
+		g_psPadClickDown[slot] = false;
+	if (replyMs)
+		g_psPadClickReplyMs[slot] = replyMs;
+	if (!linkUp)
+		return;
+	bool rising = pressed && !g_psPadClickDown[slot];
+	g_psPadClickDown[slot] = pressed;
+	if (!rising || !g_padHaptics || haptic82Blocked(slot))
+		return;
+	static const uint8_t click[3] = { 0x01, 0x01, 0xF7 };
+	relayEnqueue(0x82, click, sizeof click, true, slot);
+}
 
 void psNeutralCalib(uint8_t *buf)
 {
@@ -134,6 +168,63 @@ void touchPackPads(uint8_t *pts, bool lTouch, bool rTouch, uint16_t lx,
 		touchPackPoint(pts, 0, true, rx, ry);
 	}
 }
+
+struct TouchContactState {
+	bool down;
+	uint8_t id;
+	uint8_t source;
+	uint16_t x;
+	uint16_t y;
+};
+
+static TouchContactState g_touchState[NSLOT][2] = {};
+
+static void touchPackStatefulPoint(uint8_t stateSlot, uint8_t *base, int finger,
+				   bool touch, uint8_t source, uint16_t x,
+				   uint16_t y)
+{
+	if (stateSlot >= NSLOT || finger < 0 || finger > 1) {
+		touchPackPoint(base, finger, touch, x, y);
+		return;
+	}
+	TouchContactState &st = g_touchState[stateSlot][finger];
+	if (touch) {
+		if (!st.down || st.source != source) {
+			st.id = (uint8_t)((st.id + 1u) & 0x7Fu);
+			st.source = source;
+		}
+		st.down = true;
+		st.x = x;
+		st.y = y;
+	} else if (st.down) {
+		st.down = false;
+	}
+	uint8_t *f = base + finger * 4;
+	f[0] = (uint8_t)(st.id | (st.down ? 0x00u : 0x80u));
+	f[1] = (uint8_t)(st.x & 0xFF);
+	f[2] = (uint8_t)(((st.x >> 8) & 0x0F) | ((st.y & 0x0F) << 4));
+	f[3] = (uint8_t)((st.y >> 4) & 0xFF);
+}
+
+void touchPackPadsStateful(uint8_t stateSlot, uint8_t *pts, bool lTouch,
+			   bool rTouch, uint16_t lx, uint16_t ly, uint16_t rx,
+			   uint16_t ry)
+{
+	if (lTouch && rTouch) {
+		touchPackStatefulPoint(stateSlot, pts, 0, true, 1, lx, ly);
+		touchPackStatefulPoint(stateSlot, pts, 1, true, 2, rx, ry);
+	} else if (lTouch) {
+		touchPackStatefulPoint(stateSlot, pts, 0, true, 1, lx, ly);
+		touchPackStatefulPoint(stateSlot, pts, 1, false, 0, 0, 0);
+	} else if (rTouch) {
+		touchPackStatefulPoint(stateSlot, pts, 0, true, 2, rx, ry);
+		touchPackStatefulPoint(stateSlot, pts, 1, false, 0, 0, 0);
+	} else {
+		touchPackStatefulPoint(stateSlot, pts, 0, false, 0, 0, 0);
+		touchPackStatefulPoint(stateSlot, pts, 1, false, 0, 0, 0);
+	}
+}
+
 void steamPadsToTouch(uint32_t b, uint16_t touchH, int16_t lpx, int16_t lpy,
 		      int16_t rpx, int16_t rpy, uint16_t *lx, uint16_t *ly,
 		      uint16_t *rx, uint16_t *ry)
@@ -186,7 +277,7 @@ static void psOrBackCode(uint32_t *b, uint8_t c)
 		*b |= TB_VIEW;
 		break;
 	case 10:
-		*b |= TB_QAM;
+		*b |= TB_MENU;
 		break;
 	case 11:
 		*b |= TB_STEAM;
@@ -224,7 +315,7 @@ uint32_t psButtonsFromSteam(uint32_t raw)
 	uint32_t b = raw;
 	if (g_qamMap && (b & TB_QAM)) {
 		b &= ~(uint32_t)TB_QAM;
-		b |= tritonFromCode(g_qamMap);
+		psOrBackCode(&b, g_qamMap);
 	}
 	if ((b & CHORD_BACK4) == CHORD_BACK4)
 		b &= ~(uint32_t)(TB_A | TB_B | TB_X | TB_Y | TB_DUP | TB_DDN |
@@ -246,9 +337,10 @@ uint8_t psShouldersByte(uint32_t b, uint8_t lt, uint8_t rt)
 	return ((b & TB_LB) ? 0x01 : 0) | ((b & TB_RB) ? 0x02 : 0) |
 	       ((lt > SW_TRIG_ON || (b & 0x8000000u)) ? 0x04 : 0) |
 	       ((rt > SW_TRIG_ON || (b & 0x800000u)) ? 0x08 : 0) |
-	       ((b & TB_MENU) ? 0x10 : 0) |
-	       ((b & TB_VIEW) ? 0x20 : 0) // Menu=Options, View=Create/Share
-	       | ((b & TB_L3) ? 0x40 : 0) | ((b & TB_R3) ? 0x80 : 0);
+	       // 0x10 = Create/Share, 0x20 = Options; TB_MENU/TB_VIEW are the
+	       // Select/Start-side buttons respectively (see triton.h)
+	       ((b & TB_MENU) ? 0x10 : 0) | ((b & TB_VIEW) ? 0x20 : 0) |
+	       ((b & TB_L3) ? 0x40 : 0) | ((b & TB_R3) ? 0x80 : 0);
 }
 uint8_t psHatNibble(uint32_t b)
 {

@@ -164,6 +164,7 @@ static ps5_setcb_t const PS5_SETCB[NSLOT] = { ps5Set0, ps5Set1, ps5Set2,
 static void ps5Build(uint8_t usbSlot, uint8_t slot, uint8_t out[63])
 {
 	uint32_t b = psButtonsFromSteam(g_in[slot].buttons);
+	psPadClickEdge(slot, (b & (TB_LPADC | TB_RPADC)) != 0);
 	// A pad mapped to a stick must NOT also report as a touchpad contact -- the host would read the same
 	// finger twice (stick deflection AND a cursor drag).
 	bool lTouch = g_padStick[0] == PS_OFF &&
@@ -198,12 +199,26 @@ static void ps5Build(uint8_t usbSlot, uint8_t slot, uint8_t out[63])
 	out[24] = g_in[slot].ay >> 8;
 	out[25] = g_in[slot].az & 0xFF;
 	out[26] = g_in[slot].az >> 8;
+	// SDL treats the normal DualSense 32-bit sensor timestamp as ~1/3 us ticks.
+	uint32_t ps5SensorTimestamp = g_in[slot].imuTimestampUs * 3u;
+	out[27] = (uint8_t)(ps5SensorTimestamp & 0xFF);
+	out[28] = (uint8_t)((ps5SensorTimestamp >> 8) & 0xFF);
+	out[29] = (uint8_t)((ps5SensorTimestamp >> 16) & 0xFF);
+	out[30] = (uint8_t)((ps5SensorTimestamp >> 24) & 0xFF);
 	uint16_t tlx, tly, trx, trry;
 	steamPadsToTouch(b, PS5_TOUCH_H, g_in[slot].lpx, g_in[slot].lpy,
 			 g_in[slot].rpx, g_in[slot].rpy, &tlx, &tly, &trx,
 			 &trry);
-	touchPackPads(out + 32, lTouch, rTouch, tlx, tly, trx, trry);
+	touchPackPadsStateful(slot, out + 32, lTouch, rTouch, tlx, tly, trx,
+			      trry);
 	out[52] = PS5_STATUS_USB;
+	PsImuFrame imu = psImuFromSteam(g_in[slot]);
+	le16(out + 15, imu.gx);
+	le16(out + 17, imu.gy);
+	le16(out + 19, imu.gz);
+	le16(out + 21, imu.ax);
+	le16(out + 23, imu.ay);
+	le16(out + 25, imu.az);
 }
 
 // Dynamic-mount mode: begin() is unused (setup() calls beginPool()+usbReenumerate instead).
@@ -220,6 +235,7 @@ uint8_t Ps5Controller::maxSlots() const
 void Ps5Controller::usbIdentity()
 {
 	USBDevice.setID(0x054C, 0x0CE6);
+	USBDevice.setVersion(0x0200);
 	USBDevice.setDeviceVersion(0x0110);
 	USBDevice.setManufacturerDescriptor("Sony Interactive Entertainment");
 	USBDevice.setProductDescriptor("DualSense Wireless Controller");
