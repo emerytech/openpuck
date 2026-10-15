@@ -64,3 +64,10 @@ SInput needs a host with SDL's SInput driver (SDL 3.4+ / a current Steam client)
   haptic command, which the firmware turns into the usual 0x80 rumble relay.
 - **SDL directly**: SDL's own `testgamepad` (from an SDL 3.4+ build) prints axes, sensors and touchpads, and
   is the least ambiguous way to see exactly what the driver decoded.
+
+## Couchside mapping persistence regression
+
+Run `python3 tools/test-lizard-map.py` with a C++17 compiler available. It
+compiles the production mapping loader against an in-memory filesystem and
+checks empty v1/v2 maps, migration and reload, missing files, and truncated or
+invalid records. It does not emulate radio, USB, or physical flash behavior.
