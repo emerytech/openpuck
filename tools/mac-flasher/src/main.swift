@@ -13,6 +13,10 @@ import SwiftUI
 import AppKit
 import CryptoKit
 
+// App version — build.sh reads this line to stamp the bundle Info.plist, so the
+// app, the DMG, and the Homebrew cask always report the same number.
+let appVersion = "1.0.0"
+
 // MARK: - Firmware pin (Couchside OpenPuck fork)
 
 enum Firmware {
@@ -361,6 +365,7 @@ struct ContentView: View {
             HStack {
                 Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(Color.accentColor)
                 Text("OpenPuck Flasher").font(.title2).bold()
+                Text("v\(appVersion)").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Text("Flashed this session: \(e.flashedCount)")
                     .font(.headline).foregroundStyle(.green)
